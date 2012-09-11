@@ -201,7 +201,9 @@ RiverTrail.compiler = (function () {
                 (lowPrecision === entry.lowPrecision) &&
                 (entry.source === f) &&
                 argumentsMatch(argumentTypes, entry.argumentTypes) &&
-                (((construct !== "comprehension") && (construct !== "comprehensionScalar") && argumentMatches(RiverTrail.Helper.inferPAType(paSource), entry.paType)) || equalsShape(rankOrShape, entry.iterSpace))
+                ((((construct === "comprehension") || (construct === "comprehensionScalar")) && equalsShape(rankOrShape, entry.iterSpace)) || 
+                  argumentMatches(RiverTrail.Helper.inferPAType(paSource), entry.paType)
+                )
                ) {
                 return f.openCLCache[i];
             }

@@ -135,6 +135,7 @@ var ParallelArray = function () {
             dpoI = new DPOInterface();
         } catch (e) {
             console.log("Unable to create new DPOInterface(): "+e);
+            throw e;
         }
 
         try {
@@ -159,6 +160,7 @@ var ParallelArray = function () {
     var useKernelCaching = true;
     // whether to use lazy communication of openCL values
     var useLazyCommunication = false;
+    //var useLazyCommunication = false;
     // whether to cache OpenCL buffers
     var useBufferCaching = false;
     // whether to do update in place in scan
@@ -207,10 +209,10 @@ var ParallelArray = function () {
     var materialize = function materialize() {
         if (useFF4Interface && (this.data instanceof Components.interfaces.dpoIData)) {
             // we have to first materialise the values on the JavaScript side
-            var cachedOpenCLMem = this.data;
-            this.data = cachedOpenCLMem.getValue();
-            if (useBufferCaching) {
-                this.cachedOpenCLMem = cachedOpenCLMem;
+            this.cachedOpenCLMem = this.data;
+            this.data = this.cachedOpenCLMem.getValue();
+            if (!useBufferCaching) {
+                this.cachedOpenCLMem = undefined;
             }
         }
     };
@@ -591,6 +593,19 @@ var ParallelArray = function () {
         this.flat = true;
         this.offset = 0;
 
+        if (useLazyCommunication) {
+            // wrap all functions that need access to the data
+            requiresData(this, "get");
+            requiresData(this, "partition");
+            requiresData(this, "concat");
+            requiresData(this, "join");
+            requiresData(this, "slice");
+            requiresData(this, "toString");
+            requiresData(this, "getArray");
+        } else {
+            this.materialize();
+        }
+
         return this;
     };
     
@@ -733,7 +748,11 @@ var ParallelArray = function () {
         if (shapeToLength(newShape) != shapeToLength(pa.shape)) {
             throw new RangeError("Attempt to partition ParallelArray unevenly.");
         }
-        var newPA = new ParallelArray("reshape", pa, newShape);
+        var newPA = new ParallelArray();
+        newPA.shape = newShape;
+        newPA.strides = shapeToStrides(newShape);
+        newPA.offset = pa.offset;
+        newPA.data = pa.data;
         return newPA;
     };
     // Does this parallelArray have the following dimension?
@@ -795,7 +814,7 @@ var ParallelArray = function () {
         if (!this.isRegular()) {
             throw new TypeError("this is not a regular ParallelArray.");
         }
-        return (depth === undefined) ? this.shape.slice(0) : this.shape.slice(0, depth);
+        return (depth === undefined) ? this.shape : this.shape.slice(0, depth);
     };
    
     // When in the elemental function f "this" is the same as "this" in combine.
@@ -1296,7 +1315,7 @@ var ParallelArray = function () {
         ***/
     var scatter = function scatter(indices, defaultValue, conflictFunction, length) {
         var result;
-        var len = this.shape[0];
+        var len = this.shape[1];
         var hasDefault = (arguments.length >= 2);
         var hasConflictFunction = (arguments.length >=3 && arguments[2] != null);
         var newLen = (arguments.length >= 4 ? length : len);
@@ -1306,18 +1325,18 @@ var ParallelArray = function () {
         var i;
                 
         if (hasDefault) {
-            for (i = 0; i < newLen; i++) {
+            for (i = 0; i < len; i++) {
                 rawResult[i] = defaultValue;
+                conflictResult[i] = false;
             }
-        } 
+        }
     
         for (i = 0; i < indices.length; i++) {
-            var ind = (indices instanceof ParallelArray) ? indices.get(i) : indices[i];
-            if (ind >= newLen) throw new RangeError("Scatter index out of bounds");
+            var ind = indices.get(i);
             if (conflictResult[ind]) { // we have already placed a value at this location
                 if (hasConflictFunction) {
                     rawResult[ind] = 
-                        conflictFunction.call(undefined, this.get(i), rawResult[ind]); 
+                        conflictFunction.call(this.get(i), rawResult[ind]); 
                 } else {
                     throw new RangeError("Duplicate indices in scatter");
                 }
@@ -1393,8 +1412,6 @@ var ParallelArray = function () {
                 offset = this.offset;
                 var len = index.length;
                 for (i=0;i<len;i++) {
-                    // if we go out of bounds, we return undefined
-                    if (index[i] < 0 || index[i] >= this.shape[i]) return undefined;
                     offset = offset + index[i]*this.strides[i];
                 }
                 if (this.shape.length === index.length) {
@@ -1419,10 +1436,9 @@ var ParallelArray = function () {
             //  else it is flat but not (index instanceof Array) 
             if (arguments.length == 1) { 
                 // One argument that is a scalar index.
-                if ((index < 0) || (index >= this.shape[0])) return undefined;
                 if (this.shape.length == 1) {
                     // a 1D array
-                    return this.data[this.offset + index];
+                    return this.data[this.offset + index];                     
                 } else {
                     // we have a nD array and we want the first dimension so create the new array
                     offset = this.offset+this.strides[0]*index;
@@ -1449,8 +1465,6 @@ var ParallelArray = function () {
                 result = this;
                 for (i=0;i<arguments[0].length;i++) {
                     result = result.data[arguments[0][i]];
-                    // out of bounds => abort further selections
-                    if (result === undefined) return result;
                 }
                 return result;
             }
@@ -1460,8 +1474,6 @@ var ParallelArray = function () {
         result = this;
         for (i=0;i<arguments.length;i++) {
             result = result.data[arguments[i]];
-            // out of bounds => abort further selections
-            if (result === undefined) return result;
         }
         return result;
     };
@@ -1655,6 +1667,7 @@ var ParallelArray = function () {
     var flatten = function flatten () {
         var len = this.length;
         var newLength = 0;
+        var result;
         var shape;
         var i;
         if (this.flat) {
@@ -1662,9 +1675,14 @@ var ParallelArray = function () {
             if (shape.length == 1) {
                 throw new TypeError("ParallelArray.flatten array is flat");
             }
-            var newShape = shape.slice(1);
-            newShape[0] = newShape[0] * shape[0];
-            return new ParallelArray("reshape", this, newShape);
+            result = new ParallelArray();
+            result.shape = shape.slice(1);
+            result.shape[0] = result.shape[0] * shape[0];
+            result.strides = this.strides.slice(1);
+            result.offset = 0;
+            result.flat = true;
+            result.data = this.data;
+            return result;
         }
         for (i=0;i<len;i++) {
             if (this.get(i) instanceof ParallelArray) {
@@ -1674,16 +1692,17 @@ var ParallelArray = function () {
             }
         }
         var resultArray = new Array(newLength);
-        var next = 0;
-        for (i=0;i<len;i++) {
-            var pa = this.get(i);
-                for (j=0; j<pa.length; j++) {
-                    resultArray[next] = pa.get(j);
-                        next++;
-                }
-        }
+            var next = 0;
+            for (i=0;i<len;i++) {
+                var pa = this.get(i);
+                    for (j=0; j<pa.length; j++) {
+                        resultArray[next] = pa.get(j);
+                            next++;                
+                    }
+            }
         
-        return new ParallelArray(resultArray);
+            var res = new ParallelArray(resultArray);
+            return res;
     };
     var flattenRegular = function flattenRegular () {
         var result;
@@ -1778,7 +1797,6 @@ var ParallelArray = function () {
                 var aLen = arguments.length;
                 if (aLen === 1) {
                     if (typeof(index) === "number") {
-                        if ((index < 0) || (index >= this.shape[0])) return undefined;
                         return this.data[this.offset + index];
                     } else {
                         /* fall back to slow mode */
@@ -1816,11 +1834,9 @@ var ParallelArray = function () {
                 var result;
                 var aLen = arguments.length;
                 if (aLen === 2) {
-                    if ((index < 0) || (index >= this.shape[0]) || (index2 < 0) || (index2 >= this.shape[1])) return undefined;
                     return this.data[this.offset + index * this.strides[0] + index2];
                 } else if (aLen === 1) {
                     if (typeof index === "number") {
-                        if ((index < 0) || (index >= this.shape[0])) return undefined;
                         result = new Fast1DPA(this);
                         result.offset = this.offset + index * this.strides[0];
                         result.elementalType = this.elementalType;
@@ -1863,10 +1879,8 @@ var ParallelArray = function () {
                 var result;
                 var aLen = arguments.length;
                 if (aLen === 3) {
-                    if ((index < 0) || (index >= this.shape[0]) || (index2 < 0) || (index2 >= this.shape[1]) || (index3 < 0) || (index3 >= this.shape[2])) return undefined;
-                    return this.data[this.offset + index * this.strides[0] + index2 * this.strides[1] + index3];
+                        return this.data[this.offset + index * this.strides[0] + index2 * this.strides[1] + index3];
                 } else if (aLen === 2) {
-                    if ((index < 0) || (index >= this.shape[0]) || (index2 < 0) || (index2 >= this.shape[1])) return undefined;
                     result = new Fast1DPA(this);
                     result.offset = this.offset + index * this.strides[0] + index2 * this.strides[1];
                     result.elementalType = this.elementalType;
@@ -1876,7 +1890,6 @@ var ParallelArray = function () {
                     return result;
                 } else if (aLen === 1) {
                     if (typeof index === "number") {
-                        if ((index < 0) || (index >= this.shape[0])) return undefined;
                         result = new Fast2DPA(this);
                         result.offset = this.offset + index * this.strides[0];
                         result.elementalType = this.elementalType;
@@ -1915,15 +1928,6 @@ var ParallelArray = function () {
         } else if ((arguments.length == 2) && (typeof(arguments[0]) == 'function')) {
             // Special case where we force the type of the result. Should only be used internally
             result = createSimpleParallelArray.call(this, arguments[1], arguments[0]);
-        } else if ((arguments.length == 3) && (arguments[0] == 'reshape')) {
-            // special constructor used internally to create a clone with different shape
-            result = this;
-            result.shape = arguments[2];
-            result.strides = shapeToStrides(arguments[2]);
-            result.offset = arguments[1].offset;
-            result.elementalType = arguments[1].elementalType;
-            result.data = arguments[1].data;
-            result.flat = arguments[1].flat;
         } else if (useFF4Interface && (arguments[0] instanceof Components.interfaces.dpoIData)) {
             result = createOpenCLMemParallelArray.apply(this, arguments);
         } else if (typeof(arguments[1]) === 'function') {    
@@ -1960,21 +1964,6 @@ var ParallelArray = function () {
             try { // for Chrome/Safari compatability
                 result = Proxy.create(makeIndexOpHandler(result), ParallelArray.prototype);
             } catch (ignore) {}
-        }
-
-        if (result.data instanceof Components.interfaces.dpoIData) {
-            if (useLazyCommunication) {
-                // wrap all functions that need access to the data
-                requiresData(result, "get");
-                //requiresData(result, "partition");
-                requiresData(result, "concat");
-                requiresData(result, "join");
-                requiresData(result, "slice");
-                requiresData(result, "toString");
-                requiresData(result, "getArray");
-            } else {
-                result.materialize();
-            }  
         }
 
         return result;

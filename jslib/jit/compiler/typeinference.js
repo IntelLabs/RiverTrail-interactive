@@ -39,7 +39,6 @@ RiverTrail.Typeinference = function () {
     eval(RiverTrail.definitions.consts);
 
     var inferPAType = RiverTrail.Helper.inferPAType;
-    var nameGen = RiverTrail.Helper.nameGen;
     
     const debug = false;
     //const allowGlobalFuns = false; // Set to true so kernel functions can call global functions.
@@ -506,13 +505,13 @@ RiverTrail.Typeinference = function () {
         }
     };
 
-    TEp.emitDeclarations = function (renamer) {
+    TEp.emitDeclarations = function () {
         s = "";
         for (var name in this.bindings) {
             var type = this.bindings[name].type;
             // only declare variables that are actually used (and thus have a type) 
             if (type) {
-                s = s + " " + type.getOpenCLAddressSpace() + " " + type.OpenCLType + " " + (renamer ? renamer(name) : name) + "; ";
+                s = s + " " + type.getOpenCLAddressSpace() + " " + type.OpenCLType + " " + name + "; ";
             } 
         }
         return s;
@@ -1089,7 +1088,6 @@ RiverTrail.Typeinference = function () {
                     case IDENTIFIER:
                         // simple case of a = expr
                         tEnv.update(left.value, tEnv.accu);
-                        left = drive(left, tEnv, fEnv);
                         break;
                     case INDEX:
                         // array update <expr>[iv] = expr
@@ -1225,10 +1223,19 @@ RiverTrail.Typeinference = function () {
                 tEnv.accu = idType.type;
                 break;
             case DOT:
-                ast.children[0] = drive(ast.children[0], tEnv, fEnv);
-                var obj = tEnv.accu;
-                obj.isObjectType() || reportError("dot applied to non-object value", ast);
-                tEnv.accu = obj.getHandler().propertySelection(ast.children[1].value, tEnv, fEnv, ast);
+                if(ast.children[0].type !== IDENTIFIER) {
+                    reportError("unsupported lhs in dot selection", ast);
+                }
+                var obj = tEnv.lookup(ast.children[0].value) || reportError("unknown object `" + ast.children[0].value + "`", ast);
+                obj.initialized || reportError("variable " + ast.children[0].value + " might be uninitialized", ast);
+                ast.children[0].typeInfo = obj.type;
+                if(obj.type.name != "InlineObject") {
+                    obj.type.isObjectType() || reportError("dot applied to non-object value", ast);
+                    tEnv.accu = obj.type.getHandler().propertySelection(ast.children[1].value, tEnv, fEnv, ast);
+                }
+                else {
+                    tEnv.accu = obj.type.getHandler().propertySelection(ast.children[1].value, tEnv, fEnv, ast);
+                }
                 break;
 
             case NUMBER:
@@ -1294,10 +1301,6 @@ RiverTrail.Typeinference = function () {
             case CALL:
                 switch (ast.children[0].type) {
                     case DOT: // method invocation
-                        if(ast.children[0].children[0].value === "RiverTrailUtils") {
-                            RiverTrailUtils_Trap(ast, tEnv, fEnv);
-                            break;
-                        }
                         var dot = ast.children[0];
                         // figure out what type this object is
                         dot.children[0] = drive(dot.children[0], tEnv, fEnv);
@@ -1351,9 +1354,6 @@ RiverTrail.Typeinference = function () {
                         } 
                         
                         if (!resType) {
-                            // Ensure that the function has a unique, valid name to simplify
-                            // the treatment downstream
-                            fun.dispatch = nameGen(fun.name);
                             // create a new function frame
                             var innerTEnv = new TEnv(tEnv, true);
                             // put this call on the stack for tracing
@@ -1567,70 +1567,6 @@ RiverTrail.Typeinference = function () {
         }
 
         return ast;
-    }
-
-    // Handle RiverTrailUtils...() calls
-    function RiverTrailUtils_Trap(ast, tEnv, fEnv) {
-        if(! (ast.children[1].type === LIST) ||
-                !(ast.children[1].children.length === 2) ) {
-            reportError("Invalid method signature on RiverTrailUtils", ast);
-        }
-        switch(ast.children[0].children[1].value) {
-            case "createArray":
-                var elementTypeInfo = drive(ast.children[1].children[1], tEnv, fEnv);
-                if(elementTypeInfo.typeInfo.kind === "LITERAL" &&
-                        elementTypeInfo.typeInfo.type === "NUMBER") {
-                    ast.initializer = ast.children[1].children[1].value;
-                }
-                else {
-                    reportError("Invalid value initializer", ast);
-                }
-                var objshape = [];
-                // Infer shape description
-                ast.children[1].children[0] = drive(ast.children[1].children[0], tEnv, fEnv);
-                var shapes = ast.children[1].children[0].children;
-                var shapes_length = shapes.length;
-                for(var idx = 0; idx < shapes_length; idx++) {
-                    if(shapes[idx].typeInfo.kind !== "LITERAL" ||
-                            shapes[idx].typeInfo.type !== "NUMBER" ||
-                            shapes[idx].type !== 61) {
-                        reportError("Shape description must consist of literals only, e.g: [3, 4, 2]", ast);
-                    }
-                    objshape.push(shapes[idx].value);
-                }
-                tEnv.accu = new TObject("Array");
-                var elements = [];
-                var d;
-                var top_level_type = "";
-                for(d = 0; d < objshape.length; d++) {
-                    top_level_type += "*";
-                }
-                for(d = 0; d < objshape.length; d++) {
-                    if(d === objshape.length-1) {
-                        elements[d] = elementTypeInfo.typeInfo;
-                        elements[d].properties = {};
-                    }
-                    else {
-                        elements[d] = new TObject("Array");
-                        elements[d].OpenCLType = elementTypeInfo.typeInfo.OpenCLType +
-                            top_level_type.slice(0, top_level_type.length - d - 1);
-                        elements[d].properties = {};
-                        elements[d].properties.shape = [objshape[d+1]];
-                        elements[d].properties.addressSpace = "__private";
-                    }
-                    if(d > 0) elements[d-1].properties.elements = elements[d];
-                }
-                tEnv.accu.properties.elements = elements[0];
-                // Given an n x m x p array, the shape in 'typeInfo' for this ast node
-                // is 'n'.
-                tEnv.accu.properties.shape = [objshape[0]];
-                tEnv.accu.updateOpenCLType();
-                tEnv.addRoot(tEnv.accu);
-                tEnv.accu.setAddressSpace("__private");
-                break;
-            default:
-                reportError("Invalid method called on RiverTrailUtils", ast);
-        }
     }
 
     function typeOracle(val) {

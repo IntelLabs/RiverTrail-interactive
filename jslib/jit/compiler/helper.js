@@ -343,8 +343,9 @@ RiverTrail.Helper = function () {
         var t = new parser.Tokenizer(kernelJS);
         t.get(true); // grab the first token
         var ast = parser.FunctionDefinition(t, undefined, false, parser.EXPRESSED_FORM);        
-        // Ensure that the function has a valid name to simplify the treatment downstream
-        if (!ast.name) ast.name = "nameless";
+        // Ensure that the function has a unique, valid name to simplify
+        // the treatment downstream
+        ast.dispatch = nameGen(ast.name || (ast.name = "nameless"));
         return ast;
     };
 
@@ -501,27 +502,6 @@ RiverTrail.Helper = function () {
         }
     };
 
-    // used in genOCL and infermem to decide whether a return expression qualifies for
-    // allocation free copying
-    function isArrayLiteral (ast) {
-        return ((ast.type === ARRAY_INIT) &&
-                ((ast.typeInfo.getOpenCLShape().length == 1) ||
-                 ast.children.every(function (x) { return (x.type === IDENTIFIER) || isArrayLiteral(x);})));
-    };
-
-    // allocate an aligned Typed Array
-    function allocateAlignedTA(template, length) {
-        var alignment = RiverTrail.compiler.openCLContext.alignmentSize;
-        if (!alignment) {
-            // old extension, do not align
-            return undefined;
-            return new constructor(size);
-        }
-        var buffer = new ArrayBuffer(length * template.BYTES_PER_ELEMENT + alignment);
-        var offset = RiverTrail.compiler.openCLContext.getAlignmentOffset(buffer);
-        return new template(buffer, offset, length);
-    };
-
     return { "traverseAst" : traverseAst,
              "wrappedPP" : wrappedPP,
              "inferPAType" : inferPAType,
@@ -539,9 +519,7 @@ RiverTrail.Helper = function () {
              "reportError" : reportError,
              "reportBug" : reportBug,
              "findSelectionRoot" : findSelectionRoot,
-             "isArrayLiteral" : isArrayLiteral,
-             "compareObjectFields" : compareObjectFields,
-             "allocateAlignedTA" : allocateAlignedTA
+             "compareObjectFields" : compareObjectFields
     };
 
 }();

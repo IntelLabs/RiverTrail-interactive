@@ -50,14 +50,11 @@ if (RiverTrail === undefined) {
 RiverTrail.compiler.codeGen = (function() {
     const verboseDebug = false;
     const checkBounds = true;
-    const checkall = false;
-    const conditionalInline = false;
     const verboseErrors = true;
     const parser = Narcissus.parser;
     const definitions = Narcissus.definitions;
     const tokens = RiverTrail.definitions.tokens;
 
-    var RENAME = function (s) { return "RTl_" + s; };
 
     // Set constants in the local scope.
     eval(definitions.consts);
@@ -101,26 +98,6 @@ RiverTrail.compiler.codeGen = (function() {
         return {"enter": enter, "exit": exit, "inCalledScope": inCalledScope};
     } ();
 
-    var toCNumber = function (val, type) {
-            var res = "";
-            if ((type.OpenCLType === "float") || (type.OpenCLType === "double")) {
-                res = val; 
-                if ((String.prototype.indexOf.call(res, '.') === -1) && (String.prototype.indexOf.call(res, 'e') === -1)) {
-                    res += ".0";
-                }
-                if (type.OpenCLType === "float") {
-                    res += "f";
-                }
-            } else if (type.OpenCLType === "int"){
-               res = val;
-            } else if (type.OpenCLType === "boolean"){
-                res =  val; // CR check that this works.
-            } else {
-                reportBug("unexpected number value in toCNumber");
-            }
-            return res;
-    };
-
     //
     // The Ast is set up so that formalsAst.params holds the names of the params specified in the signature
     // of the function.
@@ -156,7 +133,7 @@ RiverTrail.compiler.codeGen = (function() {
                 s = s + formalsTypes[i].getOpenCLAddressSpace() + " ";
             }
 
-            s = s + formalsTypes[i].OpenCLType + " " + RENAME(formalsNames[i]);
+            s = s + formalsTypes[i].OpenCLType + " " + formalsNames[i];
         }
         return s;
     };
@@ -196,10 +173,10 @@ RiverTrail.compiler.codeGen = (function() {
                 s = s + formalsTypes[i].getOpenCLAddressSpace() + " ";
             }
 
-            s = s + formalsTypes[i].OpenCLType + " " + RENAME(formalsNames[i]);
+            s = s + formalsTypes[i].OpenCLType + " " + formalsNames[i];
             // array arguments have an extra offset qualifier
             if (formalsTypes[i].isObjectType("ParallelArray")) {
-                s = s + ", int " + RENAME(formalsNames[i]) + "__offset"; //offset
+                s = s + ", int " + formalsNames[i] + "__offset"; //offset
             }
         }
         return s;
@@ -230,10 +207,10 @@ RiverTrail.compiler.codeGen = (function() {
             // array arguments have an extra offset qualifier
             if (formalsTypes[i].isObjectType("ParallelArray")) {
                 //s = s + formalsNames[i-1] + " = &"+formalsNames[i-1]+"["+formalsNames[i-1]+"__offset];"; //offset
-                s = s + RENAME(formalsNames[i]) + " = &"+RENAME(formalsNames[i])+"["+RENAME(formalsNames[i])+"__offset];"; //offset
+                s = s + formalsNames[i] + " = &"+formalsNames[i]+"["+formalsNames[i]+"__offset];"; //offset
             } else if (formalsTypes[i].isObjectType("JSArray")) {
                 // these are passed with one level of indirection, so we need to unwrap them here
-                s = s + RENAME(formalsNames[i]) + " = *((" + RENAME(formalsTypes[i]).getOpenCLAddressSpace() + " double **)" + RENAME(formalsNames[i]) + ");";
+                s = s + formalsNames[i] + " = *((" + formalsTypes[i].getOpenCLAddressSpace() + " double **)" + formalsNames[i] + ");";
             }
         }
 
@@ -256,7 +233,7 @@ RiverTrail.compiler.codeGen = (function() {
                 // comprehensions have no this!
                 indexType = funDecl.typeInfo.parameters[0];
             }
-            indexName = RENAME(funDecl.params[0]);
+            indexName = funDecl.params[0];
 
             // the first argument is id that this call is responsible for.
             if (indexType.isObjectType("Array")) { //(formalsType === "int*") {
@@ -286,13 +263,29 @@ RiverTrail.compiler.codeGen = (function() {
                 indexName = funDecl.params[0];
                 indexType = funDecl.typeInfo.parameters[1];
                 if (indexType.isScalarType()) {
-                    s = s + "const " + indexType.OpenCLType+" "+ RENAME(indexName)+" = tempThis[_readoffset];"
+                    s = s + "const " + indexType.OpenCLType+" "+ indexName+" = tempThis[_readoffset];"
                 } else {
-                    s = s + indexType.getOpenCLAddressSpace() + " " + indexType.OpenCLType+" "+ RENAME(indexName)+" = &(tempThis[_readoffset]);"
+                    s = s + indexType.getOpenCLAddressSpace() + " " + indexType.OpenCLType+" "+ indexName+" = &(tempThis[_readoffset]);"
                 }
             }
             return s;
         };
+
+        var genLocalVars = function (varList) {
+            "use strict";
+            var s = " ";
+            var i;
+            var typeString;
+            for (i = 0; i < varList.length; i++) {
+                if (varList[i].initializer) {
+                    // variables without an inferred type are not used and this can be removed.
+                    typeString = varList[i].initializer.typeInfo.OpenCLType;
+                    s = s + typeString + " " + varList[i].value + "; ";
+                }
+            }
+            return s;
+        };
+
 
         //
         // This generates code for a function that is presmable called from the kernel function.
@@ -311,7 +304,7 @@ RiverTrail.compiler.codeGen = (function() {
             calledScope.enter(ast.name);
             // Need code here to deal with array values being returned.
             // NOTE: use dispatched function name here
-            s = s + " " +ast.typeInfo.result.OpenCLType + " " + RENAME(ast.dispatch);
+            s = s + " " +ast.typeInfo.result.OpenCLType + " " + ast.dispatch;
             s = s + "("; // start param list.
             // add extra parameter for failure propagation
             s = s + "int * _FAILRET";
@@ -333,14 +326,6 @@ RiverTrail.compiler.codeGen = (function() {
             return s;
         };
 
-        function inliningMightHelp(ast) {
-            var stmts = ast.body.children;
-            var type = ast.typeInfo.result;
-            return !conditionalInline || // unconditionally inline everything
-                   type.isScalarType() || // it is a scalar function
-                   ((stmts.length === 1) && (stmts[0].type === RETURN) && ((stmts[0].value.type === IDENTIFIER) || isArrayLiteral(stmts[0].value))); // the return does not involve copying
-        };
-
         function genCalledFunction(ast) {
             "use strict";
             var s = "";
@@ -351,9 +336,6 @@ RiverTrail.compiler.codeGen = (function() {
                 throw "expecting function found " + ast.value;
             }
             var returnType = ast.typeInfo.result.OpenCLType;
-            if (!inliningMightHelp(ast)) {
-                    s = s + "__attribute__((noinline)) ";
-            }
             s = s + genCalledFunctionHeader(ast);
             s = s + " { ";// function body
             s = s + " const int _writeoffset = 0; "; // add a write offset to fool the rest of code generation
@@ -472,6 +454,8 @@ RiverTrail.compiler.codeGen = (function() {
                 "hasThis": true,
                 "localThisName": " tempThis",
                 "localThisDefinition": " opThisVect[opThisVect__offset]",
+                "thisShapeLength": "const int thisShapeLength = ",
+                "thisShapeDeclPre": "const int thisShapeDecl ",
                 "localResultName": " tempResult",
             },
             "combine": {
@@ -479,6 +463,8 @@ RiverTrail.compiler.codeGen = (function() {
                 // the type of this goes here.
                 "localThisName": " tempThis",
                 "localThisDefinition": " opThisVect[opThisVect__offset]",
+                "thisShapeLength": "const int thisShapeLength = ",
+                "thisShapeDeclPre": "const int thisShapeDecl ",
                 // the type of the result of the elemental function goes here
                 "localResultName": " tempResult",
             },
@@ -487,6 +473,8 @@ RiverTrail.compiler.codeGen = (function() {
                 // the type of this goes here.
                 "localThisName": undefined,
                 "localThisDefinition": " opThisVect[opThisVect__offset]",
+                "thisShapeLength": "const int thisShapeLength = ",
+                "thisShapeDeclPre": "const int thisShapeDecl ",
                 // the type of the result of the elemental function goes here
                 "localResultName": " tempResult",
             },
@@ -495,6 +483,8 @@ RiverTrail.compiler.codeGen = (function() {
                 // the type of this goes here.
                 "localThisName": undefined,
                 "localThisDefinition": " opThisVect[opThisVect__offset]",
+                "thisShapeLength": "const int thisShapeLength = ",
+                "thisShapeDeclPre": "const int thisShapeDecl ",
                 // the type of the result of the elemental function goes here
                 "localResultName": " tempResult",
             }
@@ -599,7 +589,7 @@ RiverTrail.compiler.codeGen = (function() {
             // We dump signatures in case there is a forward reference
             s = s + declareLocalFunctions(ast.body.funDecls);
             s = s + generateLocalFunctions(ast.body.funDecls);
-            s = s + "__kernel void RT_" + funDecl.name + "(";
+            s = s + "__kernel void " + funDecl.name + "(";
 
             // add the special return parameter used to detect failure
             s = s + "__global int *_FAILRET, ";
@@ -725,6 +715,19 @@ RiverTrail.compiler.codeGen = (function() {
 
                 // initialise tempThis
                 s = s + boilerplate.localThisName + " = " + (thisIsScalar ? "(" : "&(") + boilerplate.localThisDefinition + ");"; 
+
+                // declare shape;
+                s = s + boilerplate.thisShapeLength + thisShape.length + ";";
+                if (thisShape.length > 0) {
+                    s = s + boilerplate.thisShapeDeclPre + "[" + thisShape.length + "] = { ";
+
+                    s = s + thisShape[0];
+
+                    for (i = 1; i < thisShape.length; i++) {
+                        s = s + ", " + thisShape[i];
+                    }
+                    s = s + "};";
+                } 
             }
 
             // declare tempResult
@@ -803,59 +806,12 @@ RiverTrail.compiler.codeGen = (function() {
             return s;
         }
 
-        var isArrayLiteral = RiverTrail.Helper.isArrayLiteral;
-
         function genSimpleReturn(ast) {
             "use strict";
             var s = " ";
             var elements;
             var rhs;    // right-hand-side
             var i;
-            var buildWriteCopy = function buildWriteCopy(name, idx, idx2, src, shape, rank) {
-                var res = "";
-                if (shape.length === 0) {
-                    res += name + idx + "=" + src + idx2 + ";";
-                } else {
-                    var newShape = shape.slice(1);
-                    res += "for (int cpi_" + rank + " = 0; cpi_" + rank + " < " + shape[0] + "; cpi_" + rank + "++) {";
-                    res += buildWriteCopy(name, idx+"[cpi_"+rank+"]", idx2+"[cpi_"+rank+"]", src, newShape, rank+1);
-                    res += "}";
-                }
-                return res;
-            };
-            var buildWriteCopyGlob = function buildWriteCopyGlob(name, idx, idx2, src, shape, rank) {
-                var res = "";
-                if (shape.length === 0) {
-                    res += name + idx + "=" + src + "[" + idx2 + "++];";
-                } else {
-                    var newShape = shape.slice(1);
-                    res += "for (int cpi_" + rank + " = 0; cpi_" + rank + " < " + shape[0] + "; cpi_" + rank + "++) {";
-                    res += buildWriteCopyGlob(name, idx+"[cpi_"+rank+"]", idx2, src, newShape, rank+1);
-                    res += "}";
-                }
-                return res;
-            };
-            var buildWrite = function buildWrite(name, idx, ast) {
-                var res = "";
-                if (ast.type === ARRAY_INIT) {
-                    for (var cnt = 0; cnt < ast.children.length; cnt++) {
-                        res += buildWrite(name, idx+"["+cnt+"]", ast.children[cnt]);
-                    }
-                } else if ((ast.type === IDENTIFIER) && (ast.typeInfo.getOpenCLShape().length >= 1)) {
-                    // in place copy
-                    if (ast.typeInfo.getOpenCLAddressSpace() === "__global") {
-                        // copy from flat global array
-                        res += "{ int _readidx = 0;";
-                        res += buildWriteCopyGlob(name, idx, "_readidx", oclExpression(ast), ast.typeInfo.getOpenCLShape(), 0);
-                        res += "}";
-                    } else {
-                        res += buildWriteCopy(name, idx, "", oclExpression(ast), ast.typeInfo.getOpenCLShape(), 0);
-                    }
-                } else {
-                    res += name + idx + " = " + oclExpression(ast) + ";";
-                }
-                return res;
-            };
             rhs = ast.value;
             if (rhs.typeInfo.isScalarType()) {
                 // scalar result
@@ -865,8 +821,14 @@ RiverTrail.compiler.codeGen = (function() {
             } else {
                 // direct write but only for flat arrays i.e.,
                 // rhs.typeInfo.properties.shape.length===1
-                if (isArrayLiteral(rhs)) {
-                    s = s + "{" + buildWrite("(retVal + _writeoffset)", "", rhs) + "}";
+                if (rhs.type === ARRAY_INIT && (rhs.typeInfo.getOpenCLShape().length === 1)) {
+                    elements = rhs.typeInfo.properties.shape.reduce(function (a,b) { return a*b;});
+                    // inline array expression, do direct write
+                    s = s + "{"; 
+                    for (i = 0; i < elements; i++) {
+                        s = s + "retVal[_writeoffset + " + i + "] = " + oclExpression(rhs.children[i]) + ";";
+                    }
+                    s = s + "}";
                 }
                 else if(rhs.typeInfo.isObjectType("InlineObject")) {
                     var numProps = 0;
@@ -970,43 +932,6 @@ RiverTrail.compiler.codeGen = (function() {
             var rhs;    // right-hand-side
             var i;
             rhs = ast.value;
-            var buildWriteCopy = function buildWriteCopy(name, idx, idx2, src, shape, rank) {
-                var res = "";
-                if (shape.length === 0) {
-                    res += name + "[" + idx + "++]" + "=" + src + idx2 + ";";
-                } else {
-                    var newShape = shape.slice(1);
-                    res += "for (int cpi_" + rank + " = 0; cpi_" + rank + " < " + shape[0] + "; cpi_" + rank + "++) {";
-                    res += buildWriteCopy(name, idx, idx2+"[cpi_"+rank+"]", src, newShape, rank+1);
-                    res += "}";
-                }
-                return res;
-            };
-            var buildWriteCopyGlob = function buildWriteCopyGlob(name, idx, src, shape) {
-                var length = shape.reduce(function (a,b) { return a*b; });
-                var res = "for (int cpi = 0; cpi < " + length + "; cpi++) {";
-                    res += name + "[" + idx + "++] = " + src + "[cpi];";
-                    res += "}";
-                return res;
-            };
-            var buildWrite = function buildWrite(name, idx, ast) {
-                var res = "";
-                if (ast.type === ARRAY_INIT) {
-                    for (var cnt = 0; cnt < ast.children.length; cnt++) {
-                        res += buildWrite(name, idx, ast.children[cnt]);
-                    }
-                } else if ((ast.type === IDENTIFIER) && (ast.typeInfo.getOpenCLShape().length >= 1)) {
-                    // in place copy
-                    if (ast.typeInfo.getOpenCLAddressSpace() === "__global") {
-                        res += buildWriteCopyGlob(name, idx, oclExpression(ast), ast.typeInfo.getOpenCLShape());
-                    } else {
-                        res += buildWriteCopy(name, idx, "", oclExpression(ast), ast.typeInfo.getOpenCLShape(), 0);
-                    }
-                } else {
-                    res += name + "[" + idx + "++] = " + oclExpression(ast) + ";";
-                }
-                return res;
-            };
             if (rhs.typeInfo.isScalarType()) {
                 // scalar result
                 s = boilerplate.localResultName + " = " + oclExpression(rhs) + ";";
@@ -1014,8 +939,14 @@ RiverTrail.compiler.codeGen = (function() {
             } else {
                 // direct write but only for flat arrays i.e.,
                 // rhs.typeInfo.properties.shape.length===1
-                if (isArrayLiteral(rhs)) {
-                    s = s + "{ int writeidx = 0; " + buildWrite("(retVal + _writeoffset)", "writeidx", rhs) + "}";
+                if (rhs.type === ARRAY_INIT && (rhs.typeInfo.getOpenCLShape().length === 1)) {
+                    elements = rhs.typeInfo.properties.shape.reduce(function (a,b) { return a*b;});
+                    // inline array expression, do direct write
+                    s = s + "{"; 
+                    for (i = 0; i < elements; i++) {
+                        s = s + "retVal[_writeoffset + " + i + "] = " + oclExpression(rhs.children[i]) + ";";
+                    }
+                    s = s + "}";
                 } else if(rhs.typeInfo.properties.addressSpace === "__global") {
                     s = boilerplate.localResultName + " = " + oclExpression(rhs) + ";";
                     var elements = rhs.typeInfo.getOpenCLShape().reduce(function (a,b) { return a*b;});
@@ -1096,7 +1027,7 @@ RiverTrail.compiler.codeGen = (function() {
         var s = "";
         if ((statements.type === BLOCK) || (statements.type === SCRIPT)) {
             if (statements.symbols) {
-                s = s + statements.symbols.emitDeclarations(RENAME);
+                s = s + statements.symbols.emitDeclarations();
             }
             if (statements.memVars) {
                 s = s + statements.memVars.declare();
@@ -1117,43 +1048,6 @@ RiverTrail.compiler.codeGen = (function() {
         } else {
             return ast;
         }
-    }
-
-
-    // Given a series of mem buffers representing levels of a nested array,
-    // this function initializes the pointers in the upper levels to point
-    // to the right mem buffer.
-    // When setInitialValues is 'true', it also sets the initial values at
-    // the leaves of the array
-
-    function initNestedArrayStructure(ast, setInitialValues) {
-        if(setInitialValues === true && ast.initializer === undefined) {
-            reportError("Invalid value initializer while creating array", ast)
-        }
-        var sourceShape = ast.typeInfo.getOpenCLShape();
-        var maxDepth = sourceShape.length;
-        var s = "";
-        var redu = 1; var rhs = ""; var lhs = "";
-        for(var i = 0 ; i < maxDepth; i++) {
-            if((i === maxDepth - 1) && !setInitialValues)
-                break;
-            for(var j = 0; j < sourceShape[i]*redu; j++) {
-                lhs = "(" + getPointerCast(i, maxDepth, ast.typeInfo.OpenCLType) +
-                    ast.memBuffers.list[i] + ")"
-                    + "[" + j + "]";
-                if(i === maxDepth-1 && setInitialValues) {
-                    rhs = ast.initializer;
-                }
-                else {
-                    rhs = "&((" + getPointerCast(i+1, maxDepth, ast.typeInfo.OpenCLType)
-                    + ast.memBuffers.list[i+1]
-                    + ")" + "[" + j*sourceShape[i+1] + "]" + ")";
-                }
-                s += lhs + " = " + rhs + " ,";
-            }
-            redu = redu*sourceShape[i];
-        }
-        return s;
     }
 
     // Creates a potentially checked array index.
@@ -1184,9 +1078,7 @@ RiverTrail.compiler.codeGen = (function() {
         }
 
         if (checkBounds && 
-                (checkall ||
-                 (range === undefined) ||
-                 (range.lb === undefined) ||
+                ((range.lb === undefined) ||
                  (range.lb < 0))) {
             // emit lower bound check
             result += "(_sel_idx_tmp < 0 ? (_FAIL ? 0 : (_FAIL = " + newError("index " + expr + " smaller than zero in " + RiverTrail.Helper.wrappedPP(ast)) + ", 0)) : ";
@@ -1195,9 +1087,7 @@ RiverTrail.compiler.codeGen = (function() {
         }
 
         if (checkBounds &&
-                (checkall ||
-                 (range === undefined) ||
-                 (range.ub === undefined) ||
+                ((range.ub === undefined) ||
                  (range.ub >= bound))) {
             // emit upper bound check
             result += "(_sel_idx_tmp >= " + bound + " ? (_FAIL ? 0: (_FAIL = " + newError("index " + expr + " greater than upper bound " + bound + " in " + RiverTrail.Helper.wrappedPP(ast)) + ", 0)) : ";
@@ -1290,9 +1180,9 @@ RiverTrail.compiler.codeGen = (function() {
                 for (i = sourceRank - elemRank - 1; i >= 0; i--) { // Ususally only 2 or 3 dimensions so ignore complexity
                     s = s + " + " + stride + " * ("
                         if (dynamicSel) {
-                            s = s + wrapIntoCheck((rangeInfo ? rangeInfo.get(0).get(i) : undefined), sourceShape[i], oclExpression(arrayOfIndices.children[0], ast) + "[" + i + "]") + ")";
+                            s = s + wrapIntoCheck(rangeInfo.get(0).get(i), sourceShape[i], oclExpression(arrayOfIndices.children[0], ast) + "[" + i + "]") + ")";
                         } else {
-                            s = s + wrapIntoCheck((rangeInfo ? rangeInfo.get(i) : undefined), sourceShape[i], oclExpression(arrayOfIndices.children[i]), ast) + ")";
+                            s = s + wrapIntoCheck(rangeInfo.get(i), sourceShape[i], oclExpression(arrayOfIndices.children[i]), ast) + ")";
                         }
                     stride = stride * sourceType.getOpenCLShape()[i];
                 }
@@ -1380,7 +1270,27 @@ RiverTrail.compiler.codeGen = (function() {
             }
             s = s + oclExpression(ast.children[0]);
         } else if (ast.type === NUMBER) {
-            s = s + toCNumber(ast.value, ast.typeInfo);
+            //if (ast.typeInfo.OpenCLType) {
+            //    s = s + "("+ast.typeInfo.OpenCLType+")"+ast.value;
+            //} else {
+            if ((ast.typeInfo.OpenCLType === "float") ||
+                    (ast.typeInfo.OpenCLType === "double")) {
+                s = s + ast.value;
+                if (String.prototype.indexOf.call(ast.value, '.') === -1) {
+                    s = s + ".0";
+                }
+                if (ast.typeInfo.OpenCLType === "float") {
+                    s = s + "f";
+                }
+            } else if (ast.typeInfo.OpenCLType === "int"){
+                s = s + ast.value;
+            } else if (ast.typeInfo.OpenCLType === "boolean"){
+                s = s + ast.value; // CR check that this works.
+            } else {
+                s = s + ast.value; // CR TBD - Catch all at some point not all of the explicitly 
+                // and add an exception if not recognized.
+            }
+            //}
         } else if (ast.type === THIS) {
             s = s + " tempThis "; // SAH: this should come from the boilerplate but that cannot be passed around easily
 
@@ -1392,19 +1302,13 @@ RiverTrail.compiler.codeGen = (function() {
 
                 if (rhs.value === "get") {
                     s = s + compileSelectionOperation(ast, ast.children[0].children[0], ast.children[1]);
-                } else if ((rhs.value === "getShape") && (lhs.typeInfo.isObjectType("ParallelArray"))) {
-                    // create shape literal
-                    s = s + "(";
-                    var lhsShape = lhs.typeInfo.properties.shape;
-                    for (var rank = 0; rank < lhsShape.length; rank++) {
-                        s = s + "((int*)"+ast.allocatedMem+")["+rank+"]="+lhsShape[rank]+",";
-                    }
-                    s = s + "(int*)"+ast.allocatedMem+")";
+                } else if ((rhs.value === "getShape") && (lhs.type === THIS)) {
+                    s = s + "thisShapeDecl";
+                } else if (rhs.value === "length") {
+                    // a this.length intrinsic.
+                    s = s + "TBD deal with length" +ast.first.inferredType.dimSize[0];
                 } else if (lhs.value === "Math") {
                     s = s + mathOCLMethod(ast);
-                } else if (lhs.value === "RiverTrailUtils") {
-                    s += "(" + initNestedArrayStructure(ast, true);
-                    s = s + "(" + ast.typeInfo.OpenCLType + ")(" + ast.allocatedMem + ") )";
                 } else {
                     s = s + " 628 oclExpression not complete probable some sort of method call ";
                 }
@@ -1441,25 +1345,42 @@ RiverTrail.compiler.codeGen = (function() {
                         s += "((" + ast.typeInfo.OpenCLType + ")" + rootBuffer + ")" + "->" + idx + "=" +
                             "(" + propType.OpenCLType + ")" + ast.memBuffers[idx][0] + ",";
                     }
-                    s = s + RENAME(ast.children[0].dispatch) + "( &_FAIL" + (actuals !== "" ? ", " : "") + actuals;
+                    s = s + ast.children[0].dispatch + "( &_FAIL" + (actuals !== "" ? ", " : "") + actuals;
                     s += ", (" + ast.typeInfo.OpenCLType + ")" + rootBuffer + "))";
                 }
                 else if(!(ast.typeInfo.isScalarType()) && ast.typeInfo.getOpenCLShape().length > 1) {
+                    var sourceShape = ast.typeInfo.getOpenCLShape();
+                    var maxDepth = sourceShape.length;
                     // Create structure if this call is going to return a nested
                     // array
-                    s += "(" + initNestedArrayStructure(ast, false);
-                    post_parens = ")";
+                    s += "(";
+                    var post_parens = ""; 
+                    // emit statements to initialize pointers, then emit the
+                    // call itself.
+                    var redu = 1; var rhs = ""; var lhs = ""; post_parens = ")";
+                    for(var i = 0 ; i < maxDepth-1; i++) {
+                        for(var j = 0; j < sourceShape[i]*redu; j++) {
+                            lhs = "(" + getPointerCast(i, maxDepth, ast.typeInfo.OpenCLType) +
+                                ast.memBuffers.list[i] + ")"
+                                + "[" + j + "]";
+                            rhs = "&((" + getPointerCast(i+1, maxDepth, ast.typeInfo.OpenCLType)
+                                + ast.memBuffers.list[i+1]
+                                + ")" + "[" + j*sourceShape[i+1] + "]" + ")";
+                            s += lhs + " = " + rhs + " ,";
+                        }
+                        redu = redu*sourceShape[i];
+                    }
                     // NOTE: use renamed dispatch name here!
-                    s = s + RENAME(ast.children[0].dispatch) + "( &_FAIL" + (actuals !== "" ? ", " : "") + actuals;
+                    s = s + ast.children[0].dispatch + "( &_FAIL" + (actuals !== "" ? ", " : "") + actuals;
                     if (!(ast.typeInfo.isScalarType())) {
                         s = s + ", (" + ast.typeInfo.OpenCLType + ") " + ast.allocatedMem;
                     }
                     s = s + ")";
-                    s = s + post_parens; // Close the comma list.
+                    s = s + post_parens;
                 }
                 else {
                     // NOTE: use renamed dispatch name here!
-                    s = s + RENAME(ast.children[0].dispatch) + "( &_FAIL" + (actuals !== "" ? ", " : "") + actuals;
+                    s = s + ast.children[0].dispatch + "( &_FAIL" + (actuals !== "" ? ", " : "") + actuals;
                     if (!(ast.typeInfo.isScalarType())) {
                         s = s + ", (" + ast.typeInfo.OpenCLType + ") " + ast.allocatedMem;
                     }
@@ -1627,9 +1548,10 @@ RiverTrail.compiler.codeGen = (function() {
                 // statements
                 //
             case FUNCTION:
-                // this is not an applied occurence but the declaration, so we do not do anything here
-                // functions are picked up from the body node earlier on
 
+                reportBug("Function encountered that is not at the top level. ", ast);
+
+                // this is not an applied occurence but the declaration, so we do not do anything here
                 break;
             case RETURN:
                 s += genReturn(ast);
@@ -1668,7 +1590,7 @@ RiverTrail.compiler.codeGen = (function() {
                                 if (prev !== "") {
                                     prev += ", ";
                                 }
-                                prev += RENAME(ast.value) + " = " + oclExpression(ast.initializer); 
+                                prev += ast.value + " = " + oclExpression(ast.initializer); 
                                 break;
                             default:
                                 reportBug("unhandled lhs in var/const");
@@ -1723,7 +1645,7 @@ RiverTrail.compiler.codeGen = (function() {
                                     redu = redu*sourceShape[i];
                                 }
                                 s_tmp += " (" + sourceType + ")" + ast.memBuffers.list[0] + ")";
-                                s += s_decl + "(" + RENAME(ast.children[0].value) + (ast.assignOp ? tokens[ast.assignOp] : "") + "= " + s_tmp + ")";
+                                s += s_decl + "(" + ast.children[0].value + (ast.assignOp ? tokens[ast.assignOp] : "") + "= " + s_tmp + ")";
                             }
                             else if(ast.typeInfo.isScalarType()) {
                                 // Do scalars ever have memory allocated to
@@ -1732,7 +1654,7 @@ RiverTrail.compiler.codeGen = (function() {
                             }
 
                         } else {
-                            s = s + "(" + RENAME(ast.children[0].value) + (ast.assignOp ? tokens[ast.assignOp] : "") + "= " + oclExpression(ast.children[1]) + ")"; // no ; because ASSIGN is an expression!
+                            s = s + "(" + ast.children[0].value + (ast.assignOp ? tokens[ast.assignOp] : "") + "= " + oclExpression(ast.children[1]) + ")"; // no ; because ASSIGN is an expression!
                         }
                         break;
                     case INDEX:
@@ -1747,7 +1669,7 @@ RiverTrail.compiler.codeGen = (function() {
                         // object property update.
                         // a.b = c;
                         // make sure that address spaces are right!
-                        s = s + "((" + oclExpression(ast.children[0].children[0]) + "->" + ast.children[0].children[1].value + ")" + (ast.assignOp ? tokens[ast.assignOp] : "") + "= " + oclExpression(ast.children[1]) + ")" ;
+                        s = s + "((" + ast.children[0].children[0].value + "->" + ast.children[0].children[1].value + ")" + (ast.assignOp ? tokens[ast.assignOp] : "") + "= " + oclExpression(ast.children[1]) + ")" ;
                         break;
                     default:
                         reportBug("unhandled lhs in assignment");
@@ -1833,7 +1755,7 @@ RiverTrail.compiler.codeGen = (function() {
                     case "double":
                         // SAH: OpenCL does not have ++/-- for float and double, so we emulate it
                         if (ast.postfix) {
-                            s = "(" + RENAME(incArg.value) + " " + ast.value.substring(0, 1) + "= ((" + incType + ") 1))";
+                            s = "(" + incArg.value + " " + ast.value.substring(0, 1) + "= ((" + incType + ") 1))";
                         } else {
                             // we would need a temp here. For now, just fail. This seems sufficiently uncommon...
                             throw new Error("prefix increment/decrement on floats is not implemented, yet.");
@@ -1850,7 +1772,7 @@ RiverTrail.compiler.codeGen = (function() {
 
                 // literals
             case IDENTIFIER:
-                s = s + RENAME(ast.value);
+                s = s + ast.value;
                 break;
             case THIS:
                 s = s + " tempThis "; // This should come from the boilerplate but that cannot be passed around easily
@@ -1859,13 +1781,11 @@ RiverTrail.compiler.codeGen = (function() {
                 if (ast.children[0].typeInfo.isObjectType("InlineObject")) {
                     // TypeInference would have checked if this property selection
                     // is valid
-                    s = s + " " + RENAME(ast.children[0].value) + "->" + ast.children[1].value;
+                    s = s + " " + ast.children[0].value + "->" + ast.children[1].value;
                 } else if ((ast.children[0].typeInfo.isArrayishType()) &&
                            (ast.children[1].value === "length")) {
                     // length property -> substitute the value
                     s = s + ast.children[0].typeInfo.getOpenCLShape()[0];
-                } else {
-                    reportBug("unsupported property selection in back end", ast);
                 }
                 break;
 
@@ -1950,8 +1870,6 @@ RiverTrail.compiler.codeGen = (function() {
                 reportError("array comprehensions not yet implemented", ast);
                 break;
         case NEW:
-                reportError("general object construction not yet implemented", ast);
-                break;
         case NEW_WITH_ARGS:
         case OBJECT_INIT:
                 reportError("general object construction not yet implemented", ast);

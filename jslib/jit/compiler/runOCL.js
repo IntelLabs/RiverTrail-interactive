@@ -40,7 +40,6 @@ if (RiverTrail === undefined) {
 // actualArgs   - extra kernel arguments
 
 RiverTrail.compiler.runOCL = function () {
-    var reportVectorized = false;
 
     // Executes the kernel function with the ParallelArray this and the args for the elemental function
     // paSource     - 'this' inside the kernel
@@ -197,38 +196,35 @@ RiverTrail.compiler.runOCL = function () {
                     // enable 64 bit extensions
                     kernelString = "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n" + kernelString;
                 }
-                kernel = RiverTrail.compiler.openCLContext.compileKernel(kernelString, "RT_" + kernelName);
+                kernel = RiverTrail.compiler.openCLContext.compileKernel(kernelString, kernelName);
             } catch (e) {
                 try {
-                    var log = RiverTrail.compiler.openCLContext.buildLog;
+                    RiverTrail.Helper.debugThrow(e + RiverTrail.compiler.openCLContext.buildLog);
                 } catch (e2) {
-                    var log = "<not available>";
+                    RiverTrail.Helper.debugThrow(e + e2);
                 }
-                RiverTrail.Helper.debugThrow("The OpenCL compiler failed. Log was `" + log + "'.");
             }
-            if (reportVectorized) {
+            try {
+                if (useKernelCaching && (f !== undefined)) {
+                    // save ast information required for future use
+                    var cacheEntry = { "ast": ast,
+                        "name": ast.name,
+                        "source": f,
+                        "paType": sourceType,
+                        "kernel": kernel,
+                        "construct": construct,
+                        "lowPrecision": lowPrecision,
+                        "argumentTypes": argumentTypes,
+                        "iterSpace": iterSpace
+                    };
+                    f.openCLCache.push(cacheEntry);
+                }
+            } catch (e) {
                 try {
-                    var log = RiverTrail.compiler.openCLContext.buildLog;
-                    if (log.indexOf("was successfully vectorized") !== -1) {
-                        console.log(kernelName + "was successfully vectorized");
-                    }
-                } catch (e) {
-                    // ignore
+                    RiverTrail.Helper.debugThrow(e + RiverTrail.compiler.openCLContext.buildLog);
+                } catch (e2) {
+                    RiverTrail.Helper.debugThrow(e + e2);
                 }
-            }
-            if (useKernelCaching && (f !== undefined)) {
-                // save ast information required for future use
-                var cacheEntry = { "ast": ast,
-                    "name": ast.name,
-                    "source": f,
-                    "paType": sourceType,
-                    "kernel": kernel,
-                    "construct": construct,
-                    "lowPrecision": lowPrecision,
-                    "argumentTypes": argumentTypes,
-                    "iterSpace": iterSpace
-                };
-                f.openCLCache.push(cacheEntry);
             }
         }
         // set arguments

@@ -32,12 +32,10 @@ RiverTrail.RangeAnalysis = function () {
 
     var stripToBaseType = RiverTrail.Helper.stripToBaseType;
 
-    var debug = false;
-    var intraFun = false;
-    var maxRangeUpdates = 1;
+    const debug = false;
 
-    var RANGE_MAX = 2147483647;
-    var RANGE_MIN = -2147483647;
+    const RANGE_MAX = 2147483647;
+    const RANGE_MIN = -2147483647;
 
     //
     // error reporting
@@ -106,17 +104,13 @@ RiverTrail.RangeAnalysis = function () {
             if (!other) {
                 delete this.bindings[name];
             } else {
-                if (mine instanceof Array) {
-                    this.bindings[name] = mine.map(function (val, idx) { return val.intersect(other[idx]); });
-                } else {
-                    this.bindings[name] = mine.intersect(other);
-                }
+                mine.intersect(other);
             }
         }
     };
     CTSp.merge = function (other) {
         for (name in other.bindings) {
-            this.add(name, other.bindings[name]);
+            this.add(other.bindings[name]);
         }
     };
     CTSp.addAccu = function (name, accu, index, size) {
@@ -211,9 +205,8 @@ RiverTrail.RangeAnalysis = function () {
         return (this.lb !== undefined) && (this.lb === this.ub);
     };
     Rp.covers = function (other) {
-        var res = ((this.lb === other.lb) || (this.lb < other.lb)) &&
-                  ((this.ub === other.ub) || (this.ub > other.ub));
-        return res;
+        return ((this.lb === other.lb) || (this.lb < other.lb)) &&
+               ((this.ub === other.ub) || (this.ub > other.ub));
     };
     Rp.clone = function () {
         return new Range(this.lb, this.ub, this.isInt);
@@ -376,11 +369,13 @@ RiverTrail.RangeAnalysis = function () {
     };
     VEp.applyConstraints = function (constraints) {
         for (var name in constraints.bindings) {
+            var constraint = constraints.lookup(name);
             this.apply(name, constraints.lookup(name));
         }
     }
     VEp.enforceConstraints = function (constraints) {
         for (var name in constraints.bindings) {
+            var constraint = constraints.lookup(name);
             this.enforce(name, constraints.lookup(name));
         }
     }
@@ -414,11 +409,6 @@ RiverTrail.RangeAnalysis = function () {
                      // just keep whatever we have found. 
                 this.update(name, other.bindings[name]);
             }
-        }
-    };
-    VEp.updateAll = function (other) {
-        for (var name in other.bindings) { // only look at top level additions
-            this.update(name, other.bindings[name]);
         }
     };
     VEp.invalidate = function () {
@@ -507,13 +497,11 @@ RiverTrail.RangeAnalysis = function () {
             case SCRIPT:
                 varEnv = new VarEnv(varEnv);
                 ast.rangeSymbols = varEnv;
-                if (!intraFun) {
-                    ast.funDecls.forEach(function (f) {
-                            var innerVEnv = new VarEnv();
-                            f.params.forEach(function (v) { innerVEnv.update(v, new Range(undefined, undefined, false)); });
-                            drive(f.body, innerVEnv, true);
-                        });
-                }
+                ast.funDecls.forEach(function (f) {
+                        var innerVEnv = new VarEnv();
+                        f.params.forEach(function (v) { innerVEnv.update(v, new Range(undefined, undefined, false)); });
+                        drive(f.body, innerVEnv, true);
+                    });
                 // fallthrough
             case BLOCK:
                 ast.children.forEach(function (ast) { drive(ast, varEnv, doAnnotate); });
@@ -531,15 +519,10 @@ RiverTrail.RangeAnalysis = function () {
                 // it is a non int ast, as we always return floats. This is modelled this way...
                 result = new Range(undefined, undefined, false);
                 // also, if the rhs is an identifier with non-scalar type, we promote its type to double to avoid casting on return
-                // we do the same if the rhs is an array init that contains a non-scalar identifier
-                (function rec (ast) {
-                   if (ast.type === ARRAY_INIT) {
-                     ast.children.forEach(rec);
-                   } else if ((ast.type === IDENTIFIER) && (!ast.typeInfo.isScalarType())) {
-                     varEnv.lookup(ast.value).forceInt(false);
-                     ast.rangeInfo = varEnv.lookup(ast.value);
-                   }
-                }(ast.value));
+                if ((ast.value.type === IDENTIFIER) && (!ast.value.typeInfo.isScalarType())) {
+                    varEnv.lookup(ast.value.value).forceInt(false);
+                    ast.value.rangeInfo = varEnv.lookup(ast.value.value);
+                }
 
                 break;
             //
@@ -637,7 +620,7 @@ RiverTrail.RangeAnalysis = function () {
                     drive(ast.elsePart, elseVE, doAnnotate);
                 }
                 thenVE.merge(elseVE);
-                varEnv.updateAll(thenVE);
+                varEnv.merge(thenVE);
                 break;
             case SEMICOLON:
                 if (ast.expression) {
@@ -699,14 +682,9 @@ RiverTrail.RangeAnalysis = function () {
                 drive(ast.children[0], varEnv, doAnnotate, predC);
                 var thenVE = new VarEnv(varEnv);
                 thenVE.applyConstraints(predC);
-                left = drive(ast.children[1], thenVE, doAnnotate); 
-                var predCE = new Constraints();
-                drive(ast.children[0], varEnv, doAnnotate, predCE, undefined, true); // compute inverse
-                var elseVE = new VarEnv(varEnv);
-                elseVE.applyConstraints(predCE);
-                right = drive(ast.children[2], elseVE, doAnnotate); 
-                thenVE.merge(elseVE);
-                varEnv.updateAll(thenVE);
+                left = drive(ast.children[1], thenVE, doAnnotate); // we do not forward constraints here, nor collect new ones, as we do 
+                right = drive(ast.children[2], varEnv, doAnnotate); // not know which branch will be taken
+                varEnv.merge(thenVE);
                 result = left.union(right);
                 break;
                 
@@ -740,22 +718,10 @@ RiverTrail.RangeAnalysis = function () {
             case MUL:
                 var left = drive(ast.children[0], varEnv, doAnnotate);
                 var right = drive(ast.children[1], varEnv, doAnnotate);
-                var newLb = Math.min(left.lb * right.lb, left.ub * right.lb, left.ub * right.lb, left.ub * right.ub);
-                var newUb = Math.max(left.lb * right.lb, left.ub * right.lb, left.ub * right.lb, left.ub * right.ub);
-
-                result = new Range( isNaN(newLb) ? undefined : newLb,
-                                    isNaN(newUb) ? undefined : newUb,
-                                    left.isInt && right.isInt);
-                break;
-
-            case DIV:
-                var left = drive(ast.children[0], varEnv, doAnnotate);
-                var right = drive(ast.children[1], varEnv, doAnnotate);
-                if ((left.lb !== undefined) && (left.ub !== undefined) && (Math.abs(right.lb) >= 1) && (Math.abs(right.ub) >= 1)) {
-                    var newLb = Math.min(left.lb / right.lb, left.ub / right.lb, left.ub / right.lb, left.ub / right.ub);
-                    var newUb = Math.max(left.lb / right.lb, left.ub / right.lb, left.ub / right.lb, left.ub / right.ub);
-                    result = new Range( isNaN(newLb) ? undefined : newLb, isNaN(newUb) ? undefined : newUb, false);
+                if ((left.lb >= 0) && (left.ub >= 0) && (right.lb >= 0) && (right.ub >= 0)) {
+                    result = left.map( right, function (a,b) { return a*b; }, left.isInt && right.isInt);
                 } else {
+                    // TODO: add all the special cases
                     result = new Range(undefined, undefined, false);
                 }
                 break;
@@ -780,6 +746,7 @@ RiverTrail.RangeAnalysis = function () {
             case LSH:
             case RSH:
             case URSH:
+            case DIV:
             case MOD:    
                 var left = drive(ast.children[0], varEnv, doAnnotate);
                 var right = drive(ast.children[1], varEnv, doAnnotate);
@@ -879,14 +846,9 @@ RiverTrail.RangeAnalysis = function () {
                 drive(ast.children[1], varEnv, doAnnotate);
                 switch (ast.children[0].type) {
                     case DOT:
-                        // we support getShape on Parallel Arrays, as it is a common bound for loops
+                        // we support getShape on Parallel Arrays, as it is a common bound for
+                        // loops
                         var dot = ast.children[0];
-                        if(dot.children[0].value === "RiverTrailUtils" &&
-                                dot.children[1].value === "createArray") {
-                            result = new Range(undefined, undefined, false);
-                            break;
-                        }
-
                         if (dot.children[0].typeInfo.isObjectType("ParallelArray") &&
                             (dot.children[1].value === "getShape")) {
                             result = new RangeArray(dot.children[0].typeInfo.properties.shape, function (val) { return new Range(val, val, true); });
@@ -903,53 +865,8 @@ RiverTrail.RangeAnalysis = function () {
                                     varEnv.lookup(v.value).forceInt(false);
                                 }
                             });
-                        if (intraFun) {
-                            if (ast.callFrame) { // we have dispatch information available, so we can directly go there
-                                var target = ast.callFrame.frame.ast; // grab the target instance
 
-                                if (!target.rangeUpdate || (target.rangeUpdate < maxRangeUpdates)) {
-                                    debug && console.log("inferring/updating range information for " + target.dispatch);
-                                    var innerVEnv = new VarEnv();
-                                    var updatedRI = false;
-                                    if (!target.paramRanges) { target.paramRanges = []; }
-                                    target.params.forEach(function (v, idx) { 
-                                            if (target.paramRanges[idx]) {
-                                                var oldRange = target.paramRanges[idx];
-                                                var newRange = oldRange.union(ast.children[1].children[idx].rangeInfo);
-                                                if (!oldRange.covers(newRange)) {
-                                                  updatedRI = true;
-                                                  target.paramRanges[idx] = newRange;
-                                                }
-                                            } else {
-                                                updatedRI = true;
-                                                target.paramRanges[idx] = ast.children[1].children[idx].rangeInfo.clone();
-                                            }
-                                            innerVEnv.update(v, target.paramRanges[idx]);
-                                   });
-                                   if (updatedRI) {
-                                       target.rangeUpdate = (target.rangeUpdate || 0) + 1;
-                                       drive(target.body, innerVEnv, true);
-                                   }
-                                } else if (target.rangeUpdate == maxRangeUpdates) {
-                                    debug && console.log("neutralizing range information for " + target.dispatch);
-                                    var innerVEnv = new VarEnv();
-                                    target.params.forEach(function (v,idx) { 
-                                            target.paramRanges[idx] = new Range(undefined, undefined, false);
-                                            innerVEnv.update(v, target.paramRanges[idx]);
-                                   });
-                                   drive(target.body, innerVEnv, true);
-                                   target.rangeUpdate++;
-                                } 
-                                // we do not yet propagate result ranges yet
-                                result = new Range(undefined, undefined, false);
-                            } else {
-                                // this really should not happen
-                                debug && console.log("missing callFrame");
-                                result = new Range(undefined, undefined, false);
-                            }
-                        } else {
-                            result = new Range(undefined, undefined, false);
-                        }
+                        result = new Range(undefined, undefined, false);
                 }
                 break;
 
@@ -1379,17 +1296,10 @@ RiverTrail.RangeAnalysis = function () {
                         case DOT:
                             // all method calls except "get" on PA expect floating point values.
                             var dot = ast.children[0];
-                            if(dot.children[0].value === "RiverTrailUtils" &&
-                                    dot.children[1].value === "createArray") {
-                                ast.children[1].children[1] = push(ast.children[1].children[1], tEnv, false);
-                                break;
-                            }
-
                             // traverse the lhs of the dot. Although the result 
                             // is an object, there might be some other calls in 
                             // there that have constraints. child 1 is a name, 
                             // so nothing to traverse there.
-
                             dot.children[0] = push(dot.children[0], tEnv, undefined);
                             if (dot.children[0].typeInfo.isObjectType("ParallelArray") &&
                                 (dot.children[1].value === "get")) {
@@ -1445,8 +1355,6 @@ RiverTrail.RangeAnalysis = function () {
                     break;
                 case NEW:
                 case NEW_WITH_ARGS:
-                    ast.children[1].children[1] = push(ast.children[1].children[1], tEnv, false);
-                    break;
                 case PROPERTY_INIT:
                     ast.children[1] = push(ast.children[1], tEnv, false);
                     break;
@@ -1517,7 +1425,7 @@ RiverTrail.RangeAnalysis = function () {
                             newAst.type = TOINT32;
                             newAst.typeInfo = ast.typeInfo.clone();
                             updateToNew(newAst.typeInfo, "int");
-                            newAst.rangeInfo = ast.rangeInfo.clone(); // if we have valid range info, TOINT32 will preserve it
+                            newAst.rangeInfo = new Range(undefined, undefined, true); // better be conservative here
                             newAst.children[0] = ast;
                             ast = newAst;
                         } else {
