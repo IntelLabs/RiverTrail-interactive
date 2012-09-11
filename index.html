@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+=======
+
+>>>>>>> master
 <!DOCTYPE html>
 <!--------------------------
  Copyright (c) 2012, Intel Corporation
@@ -126,7 +130,11 @@ index.html : River Trail interactive shell application
     </head>
 
     <body>
-
+        <script>
+            if(navigator.appName === "Microsoft Internet Explorer") {
+                window.location = "http://rivertrail.github.com/RiverTrail/interactive/";
+            }
+        </script>
         <!-- HEADER -->
         <div id="header_wrap" class="outer">
             <header class="inner">
