@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<!--------------------------
+ Copyright (c) 2012, Intel Corporation
+ All rights reserved.
+ 
+ Redistribution and use in source and binary forms, with or without 
+ modification, are permitted provided that the following conditions are met:
+
+ - Redistributions of source code must retain the above copyright notice, 
+   this list of conditions and the following disclaimer.
+ - Redistributions in binary form must reproduce the above copyright notice, 
+   this list of conditions and the following disclaimer in the documentation 
+   and/or other materials provided with the distribution.
+
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE 
+ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
+ CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF 
+ SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
+ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) 
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF 
+ THE POSSIBILITY OF SUCH DAMAGE.
+-------------------------->
+
+<!--
+index.html : River Trail interactive shell application
+@author: Jaswanth Sreeram
+-->
+<html>
+
+    <head>
+        <meta charset='utf-8' />
+        <meta http-equiv="X-UA-Compatible" content="chrome=1" />
+        <meta name="description" content="Jsreeram.github.com : jsreeram.github.com" />
+
+        <link rel="stylesheet" type="text/css" media="screen"
+        href="css/replstyle.css">
+
+        <title>River Trail REPL</title>
+        <style>
+            #container {
+                width: 90%;
+                margin: 0 auto;
+            }
+            .jqconsole-header {
+                font-weight: normal;
+                color: #ff5333;
+                width:400px;
+                font-size:12px;
+            }
+            /* The console container element */
+            #console {
+                position:absolute;
+                left:50%;
+                width: 40%;
+                height:70%;
+                background-color:#111111;
+                padding-left:0px;
+                margin-left:0px;
+                border:0px;
+                overflow-x:hidden;
+                overflow-y:auto;
+            }
+            /* The inner console element. */
+            .jqconsole {
+                padding: 10px;
+                overflow-x:hidden;
+                overflow-y:auto;
+            }
+            /* The cursor. */
+            .jqconsole-cursor {
+                background-color: gray;
+            }
+            /* The cursor color when the console looses focus. */
+            .jqconsole-blurred .jqconsole-cursor {
+                background-color: #444;
+            }
+            /* The current prompt text color */
+            .jqconsole-prompt {
+                color: #0d0;
+            }
+            /* The command history */
+            .jqconsole-old-prompt {
+                color: #0b0;
+                font-weight: normal;
+            }
+            /* The text color when in input mode. */
+            .jqconsole-input {
+                color: #dd0;
+            }
+            /* Previously entered input. */
+            .jqconsole-old-input {
+                color: #bb0;
+                font-weight: normal;
+            }
+            /* The text color of the output. */
+            .jqconsole-output {
+                font-weight:bold;
+                color: #eee;
+            }
+            .jqconsole-error-output {
+                color: red;
+            }
+            .jqconsole-info-output {
+                color: #0d0;
+            }
+        </style>
+        <script type="text/javascript" src="jslib/ParallelArray.js"></script>
+        <script type="text/javascript" src="jslib/jit/narcissus/jsdefs.js"></script>
+        <script type="text/javascript" src="jslib/jit/narcissus/jslex.js"></script>
+        <script type="text/javascript" src="jslib/jit/narcissus/jsparse.js"></script>
+        <script type="text/javascript" src="jslib/jit/narcissus/jsdecomp.js"></script>
+        <script type="text/javascript" src="jslib/jit/compiler/definitions.js"></script>
+        <script type="text/javascript" src="jslib/jit/compiler/helper.js"></script>
+        <script type="text/javascript" src="jslib/jit/compiler/driver.js"></script>
+        <script type="text/javascript" src="jslib/jit/compiler/dotviz.js"></script>
+        <script type="text/javascript" src="jslib/jit/compiler/typeinference.js"></script>
+        <script type="text/javascript" src="jslib/jit/compiler/rangeanalysis.js"></script>
+        <script type="text/javascript" src="jslib/jit/compiler/inferblockflow.js"></script>
+        <script type="text/javascript" src="jslib/jit/compiler/infermem.js"></script>
+        <script type="text/javascript" src="jslib/jit/compiler/genOCL.js"></script>
+        <script type="text/javascript" src="jslib/jit/compiler/runOCL.js"></script>
+    </head>
+
+    <body>
+
+        <!-- HEADER -->
+        <div id="header_wrap" class="outer">
+            <header class="inner">
+            <a id="forkme_banner" href="https://github.com/rivertrail/rivertrail">View on GitHub</a>
+
+            <h1 id="project_title">River Trail Interactive Shell</h1>
+            <h3 id="project_tagline"> Powered by <a
+                    href="http://ace.ajax.org/">Ace</a> and <a
+                    href="https://github.com/replit/jq-console">jq-console</a> </h3>
+
+            </header>
+        </div>
+
+        <!-- MAIN CONTENT -->
+        <div id="main_content_wrap" class="outer">
+            <div id="container">
+                <div id="editor" style="height: 70%; width: 45%;
+                    float:left"><pre>
+/* Type some code here, then press the run button to load your code in the
+ * console on the right. Below are some one-liners to get you started.
+*/
+
+// Create your first array:
+var first = new ParallelArray(1,2,3,4);
+
+// Hit the run button and in the console, type "first" without quotes.
+// You will get the string representation of your first ParallelArray as output:
+// [1 2 3 4]
+
+// Or you can create the same array using a comprehension
+var second = new ParallelArray(4, function f(idx) { return idx+1; });
+
+// Some more idioms to play with:
+
+/* Increment */
+var inc_pa = first.map(function f(val) {return val+1;});
+
+/* add */
+var add_pa = first.combine(function f(idx,snd) {return this.get(idx)+snd.get(idx);}, second);
+
+/* sum */
+var sum_pa = first.reduce(function f(a, b) {return a + b;});</pre></div>
+                <!--
+                var pa = new ParallelArray([1, 2, 3, 4]);
+                var pa_new = pa.combine(function (i) {
+                return Math.sqrt(this.get(i));
+                });-->
+                <script src="js/ace.js" type="text/javascript" charset="utf-8"></script>
+                <script>
+                    var editor = ace.edit("editor");
+                    editor.setTheme("ace/theme/twilight");
+                    editor.session.setMode("ace/mode/javascript");
+                    editor.setFontSize(new Number(80));
+                    editor.setShowPrintMargin(false);
+                </script>
+                <img src="images/gray-play.svg" id="run" height="40"
+                style="position:absolute;left:46%;top:40%;z-index:10"
+                onclick="jqconsole.Focus();console_run(null,true);return false;"/>
+                <div id="console"></div>
+                <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript" charset="utf-8"></script>
+                <script src="js/jqconsole-2.7.min.js" type="text/javascript" charset="utf-8"></script>
+                <script>
+                    var header_message =
+                    (window.navigator.userAgent).substring(0,70) + '...\n';
+                    try {
+                        if (RiverTrail.compiler === undefined) {
+                            header_message += 'River Trail not found. Enabling sequential mode...';
+                            var PAT = ParallelArray.prototype;
+                            PAT.combine = PAT.combineSeq;
+                            PAT.map = PAT.mapSeq;
+                            delete PAT.combineSeq;
+                            delete PAT.mapSeq;
+                            delete PAT;
+                            } else {
+                            header_message += 'River Trail Extension loaded. Enabling parallel mode...';
+                        }
+
+
+                        } catch (e) {
+                        header_message += 'RiverTrail not found. Enabling sequential mode...';
+                    }
+                    var console_run = function(oinput, fromace) {
+                        var input = oinput;
+                        if(fromace !== undefined) {
+                            input = editor.session.getValue();
+                        }
+                        var output_class = 'jqconsole-output';
+                        if(!(input)) {
+                            jqconsole.Write('\n');
+                            startPrompt();
+                            return;
+                        }
+
+                        var output = undefined;
+                        var output_string = "";
+                        // Output input with the class jqconsole-output.
+                        input_env += input + ";";
+                        try {
+                            output = eval.call(null, input);
+                            if(output === undefined) {
+                                output_string = "undefined";
+                            }
+                            else {
+                                output_string = output.toString();
+                            }
+
+                            } catch (e) {
+                            output_string = e.name + " : " + e.message;
+                            console.log(e);
+                            output_class = 'jqconsole-error-output';
+                        }
+
+                        if(fromace === undefined) {
+                            jqconsole.Write(output_string + '\n\n', output_class);
+                            startPrompt();
+                        }
+                        else {
+                            jqconsole.Write('(Script Loaded)\n\n', 'jqconsole-info-output');
+                            jqconsole.Write(output_string + '\n\n', output_class);
+                            startPrompt();
+                        }
+                    }
+                    var input_env = "";
+                    var jqconsole = $('#console').jqconsole(header_message+'\n'+'\n', '>>> ');
+                    var startPrompt = function () {
+                        // Start the prompt with history enabled.
+                        jqconsole.Prompt(true, console_run);
+                    };
+                    startPrompt();
+
+                </script>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,11 @@
+The Syntax Highlighter tool uses the MIT license contained in the files
+MIT-LICENSE. The home page for this tool is at https://github.com/alexgorbatchev/SyntaxHighlighter
+
+
+The Ace editor uses Mozilla tri-license (MPL/GPL/LGPL) (see
+https://github.com/ajaxorg/ace). The license for this tool is contained in
+the file ACE-LICENSE.
+
+The jqconsole library (see https://github.com/replit/jq-console) is licensed
+under the terms of the MIT License which is contained in the file name
+MIT-LICENSE.

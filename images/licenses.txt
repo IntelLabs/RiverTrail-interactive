@@ -1,0 +1,5 @@
+The "blacktocat" image is the property of GitHub Inc., and is used here in
+accordance with the fair use provision at http://octodex.github.com/faq.html
+
+The play button is from the Open Clip Art Library (openclipart/detail/25575),
+drawn by Andrew Fitzsimon.
