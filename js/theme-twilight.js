@@ -63,7 +63,7 @@ exports.cssText = "\
 }\
 \
 .ace-twilight .ace_text-layer {\
-  color: #F8F8F8;\
+  color: #FFFFFF;\
 }\
 \
 .ace-twilight .ace_cursor {\
@@ -171,7 +171,7 @@ color:#D2A8A1;\
 \
 .ace-twilight .ace_comment {\
   font-style:italic;\
-color:#5F5A60;\
+color:#AAFF60;\
 }\
 \
 .ace-twilight .ace_variable {\
