@@ -161,18 +161,18 @@ var first = new ParallelArray(1,2,3,4);
 // [1 2 3 4]
 
 // Or you can create the same array using a comprehension
-var second = new ParallelArray(4, function f(idx) { return idx+1; });
+var second = new ParallelArray(4, function (idx) { return idx+1; });
 
 // Some more idioms to play with:
 
 /* Increment */
-var inc_pa = first.map(function f(val) {return val+1;});
+var inc_pa = first.map(function (val) {return val+1;});
 
 /* add */
-var add_pa = first.combine(function f(idx,snd) {return this.get(idx)+snd.get(idx);}, second);
+var add_pa = first.combine(function (idx,snd) {return this.get(idx)+snd.get(idx);}, second);
 
 /* sum */
-var sum_pa = first.reduce(function f(a, b) {return a + b;});</pre></div>
+var sum_pa = first.reduce(function (a, b) {return a + b;});</pre></div>
                 <!--
                 var pa = new ParallelArray([1, 2, 3, 4]);
                 var pa_new = pa.combine(function (i) {
