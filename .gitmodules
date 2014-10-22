@@ -1,0 +1,3 @@
+[submodule "RiverTrail"]
+	path = RiverTrail
+	url = https://github.com/IntelLabs/RiverTrail
