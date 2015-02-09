@@ -137,27 +137,28 @@ index.html : River Trail interactive shell application
                     float:left"><pre>
 /* Type some code here, then press the run button to load your code in the
  * console on the right. Below are some one-liners to get you started.
-*/
+ */
 
-// Create your first array:
+/* Create your first array: */
 var first = new ParallelArray(1,2,3,4);
 
-// Hit the run button and in the console, type "first" without quotes.
-// You will get the string representation of your first ParallelArray as output:
-// [1 2 3 4]
+/* Hit the run button and in the console, type "first" without quotes.
+ * You will get the string representation of your first ParallelArray as output:
+ * [1 2 3 4]
+ */
 
-// Or you can create the same array using a comprehension
+/* Or you can create the same array using a comprehension */
 var second = new ParallelArray(4, function (idx) { return idx+1; });
 
-// Some more idioms to play with:
+/* Some more idioms to play with: */
 
 /* Increment */
 var inc_pa = first.map(function (val) {return val+1;});
 
-/* add */
+/* Add */
 var add_pa = first.combine(function (idx,snd) {return this.get(idx)+snd.get(idx);}, second);
 
-/* sum */
+/* Sum */
 var sum_pa = first.reduce(function (a, b) {return a + b;});
 
 /* Expressions you put here will be evaluated and the results will
